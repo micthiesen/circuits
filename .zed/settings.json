@@ -9,8 +9,6 @@
       "soft_wrap": "preferred_line_length"
     }
   },
-  "file_types": {
-    "atopile": ["ato"]
-  },
+  "file_types": {},
   "wrap_guides": [88]
 }
