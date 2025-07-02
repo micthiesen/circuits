@@ -6,6 +6,16 @@
 
 set -e
 
+# Setup NVM and use default Node.js version
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+
+# Use default Node.js version if NVM is available
+if command -v nvm >/dev/null 2>&1; then
+    nvm use default >/dev/null 2>&1 || true
+fi
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
