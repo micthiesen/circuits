@@ -1,0 +1,11 @@
+"""Simple DIY circuit example"""
+
+module SimpleCircuit:
+    """A basic circuit module to demonstrate atopile syntax"""
+
+    # Simple module with basic functionality
+    pass
+
+module App from SimpleCircuit:
+    """Main application module"""
+    pass
