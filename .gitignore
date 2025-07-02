@@ -27,10 +27,6 @@ fp-info-cache
 *.dsn
 *.ses
 
-# Exported BOM files
-*.xml
-*.csv
-
 # Python
 # ------
 # Byte-compiled / optimized / DLL files
@@ -180,6 +176,7 @@ celerybeat.pid
 
 # mkdocs documentation
 /site
+/output
 
 # mypy
 .mypy_cache/
