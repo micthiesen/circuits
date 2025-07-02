@@ -1,0 +1,3 @@
+[submodule "circuitscript-docs"]
+	path = circuitscript-docs
+	url = https://gitlab.com/circuitscript/circuitscript-docs.git
