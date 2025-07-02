@@ -27,6 +27,10 @@ OUTPUT_DIR="$PROJECT_ROOT/output"
 DEBOUNCE_TIME=1.5  # seconds to wait before building after changes
 DEFAULT_FORMAT="svg"
 
+# Global variables for debouncing
+PENDING_BUILD=0
+DEBOUNCE_PID=""
+
 # Function to print usage
 print_usage() {
     echo -e "${BLUE}CircuitScript Watch Tool${NC}"
@@ -118,49 +122,115 @@ build_project() {
     # Create output directory if it doesn't exist
     mkdir -p "$OUTPUT_DIR"
 
-    # Capture both stdout and stderr
-    local build_output
+    # Get output file modification time before build (if it exists)
+    local before_time=""
+    if [ -f "$output_file" ]; then
+        before_time=$(stat -f "%m" "$output_file" 2>/dev/null || stat -c "%Y" "$output_file" 2>/dev/null || echo "0")
+    else
+        before_time="0"
+    fi
+
+    # Create temporary files for stdout and stderr
+    local stdout_file=$(mktemp)
+    local stderr_file=$(mktemp)
     local exit_code
 
-    if build_output=$(circuitscript "$input_file" "$output_file" 2>&1); then
+    # Run circuitscript and capture output separately
+    if circuitscript "$input_file" "$output_file" > "$stdout_file" 2> "$stderr_file"; then
         exit_code=0
     else
         exit_code=$?
     fi
 
-    if [ $exit_code -eq 0 ]; then
-        if [ -f "$output_file" ]; then
-            local file_size=$(du -h "$output_file" 2>/dev/null | cut -f1 || echo "unknown")
-            file_size="${file_size#"${file_size%%[![:space:]]*}"}"  # trim leading
-            file_size="${file_size%"${file_size##*[![:space:]]}"}"  # trim trailing
-            print_success "Built successfully → $project_name.$format ($file_size)"
-        else
-            print_success "Build completed"
+    # Read the captured output
+    local stdout_content=$(cat "$stdout_file" 2>/dev/null || echo "")
+    local stderr_content=$(cat "$stderr_file" 2>/dev/null || echo "")
+
+    # Clean up temp files
+    rm -f "$stdout_file" "$stderr_file"
+
+    # Show stdout if there's any (usually there isn't for circuitscript)
+    if [[ -n "$stdout_content" ]]; then
+        echo "$stdout_content"
+    fi
+
+    # Always show stderr if there's any (this is where errors go)
+    if [[ -n "$stderr_content" ]]; then
+        echo ""
+        echo -e "${RED}╔══════════════════════════════════════════╗${NC}"
+        echo -e "${RED}║                Build Output              ║${NC}"
+        echo -e "${RED}╚══════════════════════════════════════════╝${NC}"
+
+        # Clean up the error output and add indentation
+        local clean_output=$(echo "$stderr_content" | sed 's/^/  /')
+
+        # Highlight common error patterns
+        clean_output=$(echo "$clean_output" | sed -E "s/(Error:|SyntaxError:|TypeError:|ParseError:)/$(printf '\033[1;31m')\1$(printf '\033[0m')/g")
+        clean_output=$(echo "$clean_output" | sed -E "s/(line [0-9]+)/$(printf '\033[1;33m')\1$(printf '\033[0m')/g")
+        clean_output=$(echo "$clean_output" | sed -E "s/(at .+:[0-9]+:[0-9]+)/$(printf '\033[0;36m')\1$(printf '\033[0m')/g")
+        clean_output=$(echo "$clean_output" | sed -E "s/(File \"[^\"]+\")/$(printf '\033[0;36m')\1$(printf '\033[0m')/g")
+
+        echo -e "$clean_output"
+        echo ""
+    fi
+
+    # Check if output file was actually created or updated
+    local after_time=""
+    local file_was_updated=0
+
+    if [ -f "$output_file" ]; then
+        after_time=$(stat -f "%m" "$output_file" 2>/dev/null || stat -c "%Y" "$output_file" 2>/dev/null || echo "0")
+        if [ "$after_time" != "$before_time" ]; then
+            file_was_updated=1
         fi
+    fi
+
+    # Determine if build was actually successful based on file modification
+    if [ $exit_code -eq 0 ] && [ $file_was_updated -eq 1 ] && [ -f "$output_file" ] && [ -s "$output_file" ]; then
+        local file_size=$(du -h "$output_file" 2>/dev/null | cut -f1 || echo "unknown")
+        print_success "Built successfully → $project_name.$format ($file_size)"
     else
-        print_error "Build failed (exit code: $exit_code)"
-
-        # Parse and display error nicely
-        if [[ -n "$build_output" ]]; then
-            echo ""
-            echo -e "${RED}╔══════════════════════════════════════════╗${NC}"
-            echo -e "${RED}║                Build Error               ║${NC}"
-            echo -e "${RED}╚══════════════════════════════════════════╝${NC}"
-
-            # Clean up the error output
-            local clean_output=$(echo "$build_output" | sed 's/^/  /')
-
-            # Highlight common error patterns
-            clean_output=$(echo "$clean_output" | sed -E "s/(Error:|SyntaxError:|TypeError:)/$(printf '\033[1;31m')\1$(printf '\033[0m')/g")
-            clean_output=$(echo "$clean_output" | sed -E "s/(line [0-9]+)/$(printf '\033[1;33m')\1$(printf '\033[0m')/g")
-            clean_output=$(echo "$clean_output" | sed -E "s/(at .+:[0-9]+:[0-9]+)/$(printf '\033[0;36m')\1$(printf '\033[0m')/g")
-
-            echo -e "$clean_output"
-            echo ""
+        if [ $exit_code -ne 0 ]; then
+            print_error "Build failed (exit code: $exit_code)"
+        elif [ $file_was_updated -eq 0 ]; then
+            print_error "Build failed (output file not updated)"
+        elif [ ! -f "$output_file" ]; then
+            print_error "Build failed (output file not created)"
+        elif [ ! -s "$output_file" ]; then
+            print_error "Build failed (output file is empty)"
+        else
+            print_error "Build failed (unknown reason)"
         fi
-
         return 1
     fi
+}
+
+# Function to perform debounced build
+debounced_build() {
+    local project_name="$1"
+    local format="$2"
+
+    # Kill any existing debounce timer
+    if [[ -n "$DEBOUNCE_PID" ]]; then
+        kill "$DEBOUNCE_PID" 2>/dev/null || true
+        DEBOUNCE_PID=""
+    fi
+
+    # Set pending build flag
+    PENDING_BUILD=1
+
+    # Start debounce timer in background
+    (
+        sleep "$DEBOUNCE_TIME"
+        if [[ "$PENDING_BUILD" -eq 1 ]]; then
+            print_status "File changed, rebuilding..."
+            build_project "$project_name" "$format"
+            PENDING_BUILD=0
+        fi
+    ) &
+
+    # Store the timer PID
+    DEBOUNCE_PID=$!
 }
 
 # Function to watch files
@@ -168,7 +238,6 @@ watch_files() {
     local project_name="$1"
     local format="$2"
     local input_file="$PROJECTS_DIR/$project_name.cst"
-    local last_build_time=0
 
     if [[ "$OSTYPE" == "darwin"* ]]; then
         # macOS - use fswatch
@@ -182,16 +251,8 @@ watch_files() {
 
         # Use fswatch to monitor the specific file
         fswatch -o "$input_file" 2>/dev/null | while read -r; do
-            current_time=$(date +%s.%N)
-            time_diff=$(echo "$current_time - $last_build_time" | bc -l 2>/dev/null || echo "999")
-
-            if (( $(echo "$time_diff >= $DEBOUNCE_TIME" | bc -l 2>/dev/null || echo "1") )); then
-                print_status "File changed, rebuilding..."
-                build_project "$project_name" "$format"
-                last_build_time=$current_time
-            else
-                print_status "Change detected, debouncing..."
-            fi
+            print_status "Change detected, debouncing..."
+            debounced_build "$project_name" "$format"
         done &
 
     elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
@@ -207,16 +268,8 @@ watch_files() {
         while true; do
             # Wait for file modification
             if inotifywait -e modify "$input_file" >/dev/null 2>&1; then
-                current_time=$(date +%s.%N)
-                time_diff=$(echo "$current_time - $last_build_time" | bc -l 2>/dev/null || echo "999")
-
-                if (( $(echo "$time_diff >= $DEBOUNCE_TIME" | bc -l 2>/dev/null || echo "1") )); then
-                    print_status "File changed, rebuilding..."
-                    build_project "$project_name" "$format"
-                    last_build_time=$current_time
-                else
-                    print_status "Change detected, debouncing..."
-                fi
+                print_status "Change detected, debouncing..."
+                debounced_build "$project_name" "$format"
             fi
         done &
     else
@@ -233,10 +286,20 @@ watch_files() {
         case "$input" in
             "r"|"R")
                 print_status "Force rebuilding..."
+                # Cancel any pending debounced build
+                if [[ -n "$DEBOUNCE_PID" ]]; then
+                    kill "$DEBOUNCE_PID" 2>/dev/null || true
+                    DEBOUNCE_PID=""
+                fi
+                PENDING_BUILD=0
                 build_project "$project_name" "$format"
                 ;;
             "q"|"Q")
                 print_status "Stopping watcher..."
+                # Clean up any pending builds
+                if [[ -n "$DEBOUNCE_PID" ]]; then
+                    kill "$DEBOUNCE_PID" 2>/dev/null || true
+                fi
                 kill $watcher_pid 2>/dev/null || true
                 exit 0
                 ;;
@@ -250,6 +313,10 @@ watch_files() {
 # Signal handler for clean exit
 cleanup() {
     print_status "Stopping watcher..."
+    # Clean up any pending builds
+    if [[ -n "$DEBOUNCE_PID" ]]; then
+        kill "$DEBOUNCE_PID" 2>/dev/null || true
+    fi
     exit 0
 }
 
