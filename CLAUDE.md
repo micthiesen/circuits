@@ -1,8 +1,3 @@
----
-description: 
-globs: *.ato
-alwaysApply: false
----
 ato is a declarative DSL to design electronics (PCBs) with.
 It is part of the atopile project.
 Atopile is run by the vscode/cursor/windsurf extension.
@@ -777,19 +772,18 @@ If a module has the `can_bridge` trait you can use the sperm operator `~>` to br
 
 `for item in container: pass` is the way to iterate over a container.
 
-# Ato CLI
+# Project Structure
 
-## How to run
-Before running ato, first run
-`alias ato="'~/.cursor-server/data/User/globalStorage/atopile.atopile/uv-b
-in/uv' 'tool' 'run' '-p' '3.13' '--from' 'atopile' 'ato'"` in the terminal.
+We have dedicated Ato project in folders within `projects`, e.g. `projects/my-project`. When running `ato` commands, always do it within a specific project directory.
+
+# Ato CLI
 
 ## Commands
 ```bash
 ❯ ato --help
-                                                                                                                                                                                                                           
- Usage: ato [OPTIONS] COMMAND [ARGS]...                                                                                                                                                                                    
-                                                                                                                                                                                                                           
+
+ Usage: ato [OPTIONS] COMMAND [ARGS]...
+
 ╭─ Options ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
 │ --non-interactive                      [env var: ATO_NON_INTERACTIVE, NONINTERACTIVE]                                                                                                                                   │
 │ --debug                                Wait to attach debugger on start                                                                                                                                                 │

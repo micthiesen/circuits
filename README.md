@@ -1,11 +1,9 @@
-# DIY Circuit Design with Atopile
+# DIY Circuit Design
 
-A personal collection of DIY circuit designs using the atopile hardware design language.
+A personal collection of DIY circuit designs.
 
 ## 🚀 Quick Start
 
 ```bash
-brew install atopile/tap/atopile
-brew install kicad
-brew install fswatch
+npm -g install circuitscript
 ```

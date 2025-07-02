@@ -1,0 +1,94 @@
+import lib
+
+# Create power supplies
+vcc = supply("VCC")
+gnd = dgnd()
+
+# Define MOSFET switching circuit for fogger control
+def fogger_control():
+    # MOSFET (N-Channel)
+    mosfet = create component:
+        pins: 3
+        symbol: "nmos"
+        params:
+            device: "NFET"
+
+    # Float switch pull-up resistor
+    r_pullup = res(10k)
+
+    # Gate resistor
+    r_gate = res(220)
+
+    # Gate pull-down resistor
+    r_pd = res(10k)
+
+    # Float switch connector (2-pin)
+    at vcc
+    wire down 100
+    add r_pullup
+    wire down 50
+    float_trigger = net("FLOAT_TRIGGER")
+    to float_trigger
+
+    # Float switch to ground
+    at float_trigger
+    wire down 100
+    to gnd
+
+    # MCU connection header (VCC, GATE_SIGNAL, GND)
+    gate_signal = net("GATE_SIGNAL")
+
+    # Gate drive circuit
+    at gate_signal
+    wire down 50
+    add r_gate
+    wire down 50
+    gate_node = net("GATE")
+    to gate_node
+
+    # Gate pull-down
+    at gate_node
+    wire down 50
+    add r_pd
+    wire down 50
+    to gnd
+
+    # MOSFET connections
+    at gate_node
+    wire down 100
+    add mosfet
+    # Connect drain to switched power
+    drain_signal = net("DRAIN_POWER")
+
+    # Connect source to ground
+    at gnd
+    wire up 100
+    to mosfet  # source pin
+
+    # Fan and fogger connections (both on switched power)
+    at vcc
+    wire down 200 right 200
+    to drain_signal
+
+    # Fan connector
+    at drain_signal
+    wire down 100 right 50
+    fan_pos = net("FAN_POS")
+    to fan_pos
+
+    at fan_pos
+    wire down 100
+    to gnd
+
+    # Fogger connector
+    at drain_signal
+    wire down 100 left 50
+    fogger_pos = net("FOGGER_POS")
+    to fogger_pos
+
+    at fogger_pos
+    wire down 100
+    to gnd
+
+# Create the main circuit
+fogger_control()
